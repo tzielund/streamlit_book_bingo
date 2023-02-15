@@ -69,16 +69,19 @@ if query_author or query_title:
         author_query = ""
     query = title_query + "+" + author_query
     result_json = search_books(query)
+    result_json
     if result_json["totalItems"] == 0:
         streamlit.write("No volumes found")
     else:
-        print(type(result_json))
+        # print(type(result_json))
         # streamlit.json(result_json)
         items = result_json["items"]
         checkboxes = list()
         for itemnum in range(0,min(len(items),10)):
             item = items[itemnum]
             vol = item["volumeInfo"]
+            selfLink = item["selfLink"]
+            canonicalLink = vol.get("canonicalVolumeLink",selfLink)
             img,md = streamlit.columns([1,5])
             img.image(vol.get("imageLinks", {}).get("thumbnail",DUMMY_COVER))
             title = vol["title"]
@@ -87,5 +90,8 @@ if query_author or query_title:
             checkboxes.append(md.checkbox(title,key=f"search_result_{len(checkboxes)}"))
             authors = ", ".join(vol["authors"])
             md.text(authors)
+            md.markdown(f"[gb]({selfLink})")
+            if canonicalLink != selfLink:
+                md.markdown(f"[GB]({canonicalLink})")
 
 

@@ -1,12 +1,28 @@
 """Model classes for book bingo."""
 
 import json
+import os
+import urllib
 from hashlib import blake2b
+from pathlib import Path
 from typing import Any, Dict, Tuple, List
+
+import requests
+import streamlit
 
 CARD_DIR = "cards/"
 INDEX_FILE = f"{CARD_DIR}index.json"
 BINGO = "BINGO"
+PLAYER_DIR = "players/"
+DIRECTION_ASC = "asc"
+DIRECTION_DESC = "desc"
+STATUS_NOT_STARTED = "not started"
+STATUS_IN_PROGRESS = "in progress"
+STATUS_FINISHED = "finished"
+STATUS_OPTIONS = [STATUS_NOT_STARTED,STATUS_IN_PROGRESS,STATUS_FINISHED]
+API_KEY=os.environ.get("BOOK_SEARCH_API_KEY","key not available")
+DUMMY_COVER="http://books.google.com/books/content?id=cutxHKHYmrMC&printsec=frontcover&img=1&zoom=1&edge=curl&source=gbs_api"
+BLANK_COVER="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBwgHBgkIBwgKCgkLDRYPDQwMDRsUFRAWIB0iIiAdHx8kKDQsJCYxJx8fLT0tMTU3Ojo6Iys/RD84QzQ5OjcBCgoKDQwNGg8PGjclHyU3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3N//AABEIAKIAfQMBIgACEQEDEQH/xAAXAAEBAQEAAAAAAAAAAAAAAAAAAwIH/8QAGhABAAMBAQEAAAAAAAAAAAAAAAEDcTEyIf/EABQBAQAAAAAAAAAAAAAAAAAAAAD/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwDttPmdUTp8zqgAAAAAAAAAAAAAAJ0+Z1ROnk6oAAAAAAAAAAAAAACdPmdUYq5OtgAAAAAAAAAAAAAAxVydbTq5OqAAAAAAAAAAAAAAAxVydbTqn5OqAAAAAAAAAAAAAAAnTydUTp5OqAAAAAAAAAAAAAAAxVydbTp5OqAAAAAAAAAAAAAAAnVydUTp8zqgAAAAAAAAAAAAAAJ0+Z1ROnzOqAAAAAAAAAAAAAAAnT5nVE6eTqgAAAAAAAAAAAAAAJ08nVAAAAAAAAAAAAAAAB//2Q=="
 
 class BookBingoException(Exception):
     """Used to indicate errors of logic in Book Bingo model."""
@@ -206,3 +222,148 @@ class CardIndex:
             if card.get_status() == card.STATUS_DRAFT and card.get_creator() == creator:
                 result.append(card)
         return result
+
+class BookBingoPlayerProgress:
+    """Encapsulates a specific player's progress on a specific card."""
+
+    def __init__(self, player: str, card:BookBingoCard):
+        """Initialize with an ID and filename (ie, read the file found at filename)."""
+        self.player = player
+        self.card = card
+        self.filename = f"{PLAYER_DIR}{player}/{card.filename}"
+        if os.path.exists(self.filename):
+            with open(self.filename) as IN:
+                self.progress = json.load(IN)
+        else:
+            self.progress = {}
+        self.validate()
+
+    def validate(self):
+        return True
+
+    def write_to_file(self):
+        """Serializes to local file."""
+        fpath = Path(self.filename)
+        pardir = fpath.parent.absolute()
+        os.makedirs(pardir, exist_ok=True)
+        with open(self.filename, 'w') as OUT:
+            OUT.write(json.dumps(self.progress, indent=2))
+
+    def get_cell_progress(self, cell):
+        """Returns the book details of a given cell, if any."""
+        return self.progress.get(cell,{})
+
+    def get_cell_title(self, cell):
+        """Returns the book title of a given cell, if any."""
+        prog_struct = self.get_cell_progress(cell)
+        return prog_struct.get("title","")
+
+    def get_cell_author(self, cell):
+        """Returns the book title of a given cell, if any."""
+        prog_struct = self.get_cell_progress(cell)
+        return prog_struct.get("author","")
+
+    def get_cell_title_and_author(self, cell):
+        """Returns {title} by {author} if populated."""
+        if self.get_cell_progress(cell):
+            return self.progress.get("title","No book") + " by " + self.progress.get("author", "No author")
+        return None
+
+    def get_cell_image(self, cell):
+        """Returns the book title of a given cell, if any."""
+        prog_struct = self.get_cell_progress(cell)
+        return prog_struct.get("image","")
+
+    def get_cell_status(self, cell):
+        """Returns the book title of a given cell, if any."""
+        prog_struct = self.get_cell_progress(cell)
+        return prog_struct.get("status",None)
+
+    def set_cell_progress(self, cell, title, author, image, status):
+        """Establishes a full book and status for a particular cell."""
+        prog_struct = dict()
+        prog_struct["title"] = title
+        prog_struct["author"] = author
+        prog_struct["image"]=  image
+        prog_struct["status"] = status
+        self.progress[cell] = prog_struct
+        self.write_to_file()
+
+    def set_cell_status(self, cell, status):
+        if self.get_cell_status(cell):
+            self.progress[cell]["status"] = status
+        self.write_to_file()
+
+    def is_win_row(self, rownum):
+        """Returns True if all books in specified row are status FINISHED."""
+        for colnum in range(0,5):
+            cell = self.card.index_to_cell_code(colnum, rownum)
+            status = self.get_cell_status(cell)
+            if status != STATUS_FINISHED:
+                return False
+        return True
+
+    def is_win_col(self, colnum):
+        """Returns True if all books in specified column are status FINISHED."""
+        for rownum in range(0,5):
+            cell = self.card.index_to_cell_code(colnum, rownum)
+            status = self.get_cell_status(cell)
+            if status != STATUS_FINISHED:
+                return False
+        return True
+
+    def is_win_diag(self, direction):
+        """Returns True if all books in specified diagnoal are status FINISHED."""
+        for colnum in range(0,5):
+            if direction == DIRECTION_ASC:
+                rownum = 5-colnum
+            else:
+                rownum = colnum
+            cell = self.card.index_to_cell_code(colnum, rownum)
+            status = self.get_cell_status(cell)
+            if status != STATUS_FINISHED:
+                return False
+        return True
+
+    def is_win_blackout(self):
+        """Returns true if all cells are finished."""
+        for colnum in range(0,5):
+            for rownum in range(0,5):
+                cell = self.card.index_to_cell_code(colnum, rownum)
+                status = self.get_cell_status(cell)
+                if status != STATUS_FINISHED:
+                    return False
+        return True
+
+    def get_wins(self):
+        """Checks current progress to see if any win conditions exist and returns a list."""
+        wins = list()
+        for colnum in range(0,5):
+            if self.is_win_col(colnum):
+                wins.append(f"Column {BINGO[colnum]}")
+            if self.is_win_row(colnum):
+                wins.append(f"Row {colnum+1}")
+        if self.is_win_diag(DIRECTION_ASC):
+            wins.append(f"Diagonal {DIRECTION_ASC}")
+        if self.is_win_diag(DIRECTION_DESC):
+            wins.append(f"Diagonal {DIRECTION_DESC}")
+        if self.is_win_blackout():
+            wins.append("Blackout!!!")
+
+@streamlit.cache
+def search_books(query_author, query_title):
+    if query_title:
+        title_query = urllib.parse.quote(str(query_title).encode('utf-8'))
+    else:
+        title_query = ""
+    if query_author:
+        author_query = urllib.parse.quote(b"inauthor:" + str(query_author).encode('utf-8'))
+    else:
+        author_query = ""
+    query = title_query + "+" + author_query
+    url = f"https://www.googleapis.com/books/v1/volumes?q={query}&key={API_KEY}"
+    response = requests.get(url)
+    print(response.status_code)
+    print(response.text)
+    return(response.json())
+
