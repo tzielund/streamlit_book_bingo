@@ -1,0 +1,14 @@
+credentials:
+  usernames:
+    tzielund:
+      email: tzielund@fastmail.fm
+      name: Tom Zielund
+      password: '$2b$12$2yUnE0uKbHGHaW/S0zO0WOoGh5tNDyvB6dvGf0qYvd0PkBaKeqe2K'
+cookie:
+  expiry_days: 30
+  key: random_signature_key # Must be string
+  name: random_cookie_name
+preauthorized:
+  emails:
+  - tzielund@fastmail.fm
+  - tom.zielund@thomsonreuters.com

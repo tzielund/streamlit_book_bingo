@@ -23,6 +23,7 @@ STATUS_OPTIONS = [STATUS_NOT_STARTED,STATUS_IN_PROGRESS,STATUS_FINISHED]
 API_KEY=os.environ.get("BOOK_SEARCH_API_KEY","key not available")
 DUMMY_COVER="http://books.google.com/books/content?id=cutxHKHYmrMC&printsec=frontcover&img=1&zoom=1&edge=curl&source=gbs_api"
 BLANK_COVER="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBwgHBgkIBwgKCgkLDRYPDQwMDRsUFRAWIB0iIiAdHx8kKDQsJCYxJx8fLT0tMTU3Ojo6Iys/RD84QzQ5OjcBCgoKDQwNGg8PGjclHyU3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3N//AABEIAKIAfQMBIgACEQEDEQH/xAAXAAEBAQEAAAAAAAAAAAAAAAAAAwIH/8QAGhABAAMBAQEAAAAAAAAAAAAAAAEDcTEyIf/EABQBAQAAAAAAAAAAAAAAAAAAAAD/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwDttPmdUTp8zqgAAAAAAAAAAAAAAJ0+Z1ROnk6oAAAAAAAAAAAAAACdPmdUYq5OtgAAAAAAAAAAAAAAxVydbTq5OqAAAAAAAAAAAAAAAxVydbTqn5OqAAAAAAAAAAAAAAAnTydUTp5OqAAAAAAAAAAAAAAAxVydbTp5OqAAAAAAAAAAAAAAAnVydUTp8zqgAAAAAAAAAAAAAAJ0+Z1ROnzOqAAAAAAAAAAAAAAAnT5nVE6eTqgAAAAAAAAAAAAAAJ08nVAAAAAAAAAAAAAAAB//2Q=="
+# DUMMY_COVER="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTgpZvIJxl4LvMxW--xCyE3v9bmKkjpVl-vbarWt8U0A-qIxhaarSULh55IUr_TyDPkTPc&usqp=CAU"
 
 class BookBingoException(Exception):
     """Used to indicate errors of logic in Book Bingo model."""
@@ -174,7 +175,7 @@ class CardIndex:
         if not hasattr(cls, 'instance'):
             cls.instance = super(CardIndex, cls).__new__(cls)
         return cls.instance
-    
+
     def __init__(self):
         """Initialize the singleton instance by reading the file."""
         with open (INDEX_FILE) as IN:
@@ -266,7 +267,8 @@ class BookBingoPlayerProgress:
     def get_cell_title_and_author(self, cell):
         """Returns {title} by {author} if populated."""
         if self.get_cell_progress(cell):
-            return self.progress.get("title","No book") + " by " + self.progress.get("author", "No author")
+            prog_struct = self.get_cell_progress(cell)
+            return prog_struct.get("title","No book") + " by " + prog_struct.get("author", "No author")
         return None
 
     def get_cell_image(self, cell):
@@ -350,8 +352,20 @@ class BookBingoPlayerProgress:
         if self.is_win_blackout():
             wins.append("Blackout!!!")
 
+def authors_to_author(authors: List[str]) -> str:
+    """Lists or abbreviates authors as a string."""
+    if len(authors) == 0:
+        return "no author"
+    elif len(authors) == 1:
+        return authors[0]
+    elif len(authors) <= 3:
+        return ", ".join(authors)
+    else:
+        return authors[0] + " et. al."
+
 @streamlit.cache
-def search_books(query_author, query_title):
+def search_books_g(query_author, query_title):
+    """Use the Google Books api to search for books, authors, and images by title and author prompt."""
     if query_title:
         title_query = urllib.parse.quote(str(query_title).encode('utf-8'))
     else:
@@ -365,5 +379,49 @@ def search_books(query_author, query_title):
     response = requests.get(url)
     print(response.status_code)
     print(response.text)
-    return(response.json())
+    responseJson = response.json()
+    responseItems = responseJson["items"]
+    responseItems = responseItems[0:min(10,len(responseItems))]
+    result = list()
+    for item in responseItems:
+        vol = item["volumeInfo"]
+        thisResult = dict()
+        thisResult["title"] = vol["title"]
+        if vol.get("subtitle",""):
+            thisResult["title"] += ": " + vol["subtitle"]
+        thisResult["author"] = authors_to_author(vol.get("authors",["no author"]))
+        thisResult["image"] = vol.get("imageLinks", {}).get("thumbnail", BLANK_COVER)
+        thisResult["url"] = vol.get('canonicalVolumeLink','')
+        result.append(thisResult)
+    return(result)
+
+@streamlit.cache
+def search_books_ol(query_author, query_title):
+    """Use the OpenLibrary api to search for books, authors, and images by title and author prompt."""
+    params = dict()
+    if query_title:
+        params["title"] = urllib.parse.quote(str(query_title).encode('utf-8'))
+    if query_author:
+        params["author"] = urllib.parse.quote(str(query_author).encode('utf-8'))
+    url = f"https://openlibrary.org/search.json"
+    response = requests.get(url, params=params)
+    if response.status_code != 200:
+        print(response.status_code)
+        print(response.text)
+    rjson = response.json()
+    docs = rjson["docs"]
+    docs = docs[0:min(10,len(docs))]
+    result = list()
+    for doc in docs:
+        thisResult = dict()
+        thisResult["title"] = doc["title"]
+        thisResult["author"] = authors_to_author(doc.get("author_name", ["no author"]))
+        imgNum = doc.get("cover_i","")
+        thisResult["image"] = f"https://covers.openlibrary.org/b/id/{imgNum}-M.jpg"
+        thisResult["url"] = "foo"
+        result.append(thisResult)
+    print(response.status_code)
+    print(response.text)
+    return(result)
+
 
