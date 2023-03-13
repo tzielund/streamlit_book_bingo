@@ -1,13 +1,10 @@
-import datetime
-import json
 import os
-import subprocess
-import time
 
 import streamlit
-import requests
 from requests.structures import CaseInsensitiveDict
-import dateutil.parser
+
+from spotify_util import get_cached_playlist_list, cache_playlist, get_recently_played, add_to_playlist, \
+    remove_from_playlist, CACHE_DIR
 
 # import logging
 # try:
@@ -37,176 +34,120 @@ if not token:
 streamlit.session_state["spotify_bearer"] = token
 
 headers = CaseInsensitiveDict()
-headers = CaseInsensitiveDict()
 headers["Authorization"] = token
 headers["Content-Type"] = "application/json"
 
-# Spotify utils
+def summarize_playlist(playlist_metadata, playlist_tracks):
+    plid = playlist_metadata['id']
+    streamlit.header(playlist_metadata.get("name",plid))
+    streamlit.write(f"Total: {playlist_metadata['tracks']['total']}")
+    # for trackid in playlist_tracks.keys():
+    #     item = playlist_tracks[trackid]
+    #     streamlit.markdown(f"* {item['name']}")
 
-CACHE_DIR = "spotify_cache/"
-os.makedirs(CACHE_DIR, exist_ok=True)
+def list_playlist(playlist_metadata, playlist_tracks):
+    plid = playlist_metadata['id']
+    streamlit.sidebar.header(playlist_metadata.get("name",plid))
+    default_artists = [{'name':'no name'}]
+    for trackid in playlist_tracks.keys():
+        item = playlist_tracks[trackid]
+        label = f"{item['name']} by {item.get('artists',default_artists)[0]['name']}"
+        url = f"https://open.spotify.com/track/{trackid}"
+        streamlit.sidebar.markdown(f"* [{label}]({url})")
 
-def get_cached_playlist_list(headers):
-    cache_filename = f"{CACHE_DIR}playlist_list.json"
-    result = requests.get("https://api.spotify.com/v1/me/playlists?limit=50", headers=headers)
-    if result.status_code != 200:
-        streamlit.write(result.status_code)
-        streamlit.write(result.text)
-        streamlit.stop()
-    items = result.json()["items"]
-    with open (cache_filename, 'w') as OUT:
-        OUT.write(json.dumps(items, indent=4))
-    return items
-
-def safe_remove(track_struct, field_list):
-    if len(field_list) == 0:
-        return
-    if not isinstance(track_struct, dict):
-        return
-    lookfor = field_list[0]
-    if lookfor not in track_struct:
-        return
-    if len(field_list) == 1:
-        if track_struct[lookfor] is None:
-            track_struct[lookfor] = 'x'
-        del (track_struct[lookfor])
-    else:
-        tail = field_list[1:]
-        new_context = field_list[lookfor]
-        safe_remove(new_context, tail)
-
-REMOVE_LIST = [
-    "added_at", "added_by", "is_local", "primary_color", "sharing_info",
-    "track/album", "track/available_markets"
-]
-def simplify(track_struct):
-    for item in REMOVE_LIST:
-        splits = item.split("/")
-        print (f"removing {item}")
-        safe_remove(track_struct, splits)
-
-
-def cache_playlist(headers, playlist_id, playlist_metadata):
-    new_snapshot = playlist_metadata["snapshot_id"]
-    playlist_file = CACHE_DIR + playlist_id + ".json"
-    if os.path.exists(playlist_file):
-        with open (playlist_file) as IN:
-            playlist_details = json.load(IN)
-            cached_snapshot = playlist_details["snapshot_id"]
-            if cached_snapshot == new_snapshot:
-                print(f"Cached {playlist_id} is still valid")
-                for item in playlist_details:
-                    # Simplify each item by deleting some useless stuff
-                    simplify(item)
-        with open (playlist_file, 'w') as OUT:
-            OUT.write(json.dumps(playlist_details,indent=4))
-        return playlist_details
-    # If here, we must extract the full playlist and cache it
-    streamlit.write(f"Caching playlist {playlist_metadata['name']}")
-    prog = streamlit.progress(0.0)
-    total = playlist_metadata['tracks']['total']+1
-    playlist_tracks = list()
-    done = False
-    offset = 0
-    pagesize = 50
-    print(f"Preparing to extract {playlist_id}")
-    while not done:
-        print (f"Offset {offset}")
-        url = f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks"
-        url += f"?offset={offset}&limit=50"
-        print (url)
-        response = requests.get(url, headers=headers)
-        if response.status_code != 200:
-            response.status_code
-            response.text
-            return
-        jsondata = response.json()
-        # streamlit.json(jsondata)
-        itemlist = jsondata["items"]
-        for item in itemlist:
-            # Simplify each item by deleting some useless stuff
-            simplify(item)
-        prog.progress(len(playlist_tracks)/total)
-        print (f"Found {len(itemlist)}")
-        playlist_tracks.extend(itemlist)
-        if len(itemlist) < pagesize:
-            done = True
-        offset += pagesize
-        time.sleep(2)
-        # done = True
-    playlist_metadata["items"] = playlist_tracks
-    with open(playlist_file, 'w') as OUT:
-        OUT.write(json.dumps(playlist_metadata, indent=4))
-    return playlist_tracks
-
-def get_recently_played(headers):
-    recent_list = list()
-    done = False
-    oldest = None
-    while not done:
-        recent_url = f"https://api.spotify.com/v1/me/player/recently-played"
-        params = {}
-        if oldest:
-            params["before"] = oldest
-            print (f"Again, before {oldest}")
-        recent_result = requests.get(recent_url, headers=headers, params=params)
-        recent_result.status_code
-        if recent_result.status_code != 200:
-            recent_result.text
-        recent_json = recent_result.json()
-        recent_items = recent_json["items"]
-        if len(recent_list) > 200 or len(recent_items) == 0:
-            done = True
-        for item in recent_items:
-            # streamlit.json(item)
-            track = item["track"]
-            if 'id' not in track:
-                print ("What the...")
-                print (json.dumps(item, indent=2))
-                continue
-            recent_list_struct = dict()
-            recent_list_struct["id"] = track["id"]
-            recent_list_struct["name"] = track["name"]
-            pAt = item["played_at"]
-            pAtDt = dateutil.parser.isoparse(pAt)
-            pAtTs = int(round(pAtDt.timestamp()))
-            oldest = pAtTs
-            recent_list_struct["played_at"] = pAt
-            recent_list_struct["played_at_timestamp"] = pAtTs
-            recent_list.append(recent_list_struct)
-    return recent_list
 
 playlist_list = get_cached_playlist_list(headers)
 
 master_playlist_name = "master playlist"
-master_unrecent_name = "not recently played"
+unrecent_playlist_name = "not recently played"
+recent_playlist_name = "Recently Played"
 
 for playlist in playlist_list:
     if playlist["name"] == master_playlist_name:
         master_playlist = playlist
-    if playlist["name"] == master_unrecent_name:
-        master_unrecent = playlist
+    if playlist["name"] == unrecent_playlist_name:
+        unrecent_playlist = playlist
+    if playlist["name"] == recent_playlist_name:
+        recent_playlist = playlist
 
-# master_unrecent
-streamlit.header("Not recently played copy")
-streamlit.write(f"Name: {master_unrecent['name']}")
-unrecent_id = master_unrecent['id']
-streamlit.write(f"Id: {unrecent_id}")
-streamlit.write(f"Size: {master_unrecent['tracks']['total']}")
-streamlit.write(f"SnapshotID: {master_unrecent['snapshot_id']}")
-cache_playlist(headers, unrecent_id, master_unrecent)
-
-# master_playlist
 master_id = master_playlist['id']
-master_snapshot = master_playlist['snapshot_id']
-streamlit.header("Master playlist")
-streamlit.write(f"Name: {master_playlist['name']}")
-streamlit.write(f"Id: {master_id}")
-streamlit.write(f"Size: {master_playlist['tracks']['total']}")
-streamlit.write(f"SnapshotID: {master_snapshot}")
-cache_playlist(headers, master_id, master_playlist)
+master_list = cache_playlist(headers, master_id, master_playlist)
+
+
+recent_id = recent_playlist['id']
+recent_list = cache_playlist(headers, recent_id, recent_playlist)
+# recent_list
+
+unrecent_id = unrecent_playlist['id']
+unrecent_list = cache_playlist(headers, unrecent_id, unrecent_playlist)
 
 # Recently Played
-recent_list = get_recently_played(headers)
+refresh_rp = streamlit.sidebar.button("Refresh recently played")
+recent_plays = get_recently_played(headers, ignore_cache=refresh_rp)
+summarize_playlist({'id':"$RECENT", 'tracks':{'total':len(recent_plays)}}, recent_plays)
 
-streamlit.json(recent_list)
+streamlit.header("What needs to be done")
+
+to_be_added_to_rp = dict()
+for rpid in recent_plays:
+    if rpid not in (recent_list):
+        to_be_added_to_rp[rpid] = recent_plays[rpid]
+if to_be_added_to_rp:
+    streamlit.write("Recently played tracks not found in the Recently Played playlist:")
+    for id in to_be_added_to_rp.keys():
+        label = f"{recent_plays[id]['name']}"
+        url = f"https://open.spotify.com/track/{id}"
+        streamlit.markdown(f"[{label}]({url})")
+    sync_to_be_added_to_rp = streamlit.button("Sync these to Recently Played")
+    if sync_to_be_added_to_rp:
+        streamlit.write("Attempting to add items to playlist")
+        add_to_playlist(headers, recent_playlist, list(to_be_added_to_rp.keys()))
+        streamlit.experimental_rerun()
+
+# to_be_added_to_unrecent = dict()
+# for rpid in master_list:
+#     if len(to_be_added_to_unrecent) >= 100:
+#         break
+#     if rpid not in (unrecent_list):
+#         if rpid not in recent_list and rpid not in recent_plays:
+#             to_be_added_to_unrecent[rpid] = master_list[rpid]
+# if to_be_added_to_unrecent:
+#     streamlit.write(f"First {len(to_be_added_to_unrecent)} master tracks to go into unrecent:")
+#     for id in to_be_added_to_unrecent:
+#         label = f"{master_list[id]['name']} by {master_list[id]['artists'][0]['name']}"
+#         url = "https://open.spotify.com/track/{id}"
+#         streamlit.markdown(f"[{label}]({url})")
+#     sync_to_be_added_to_ur = streamlit.button("Sync these to Not Recently Played")
+#     if sync_to_be_added_to_ur:
+#         streamlit.write("Attempting to add items to playlist")
+#         add_to_playlist(headers, unrecent_playlist, list(to_be_added_to_unrecent.keys()))
+#         streamlit.experimental_rerun()
+#
+# to_be_removed_from_unrecent = dict()
+# for rpid in unrecent_list:
+#     if rpid in recent_plays or rpid in recent_list:
+#         to_be_removed_from_unrecent[rpid] = True
+# if to_be_removed_from_unrecent:
+#     streamlit.write("Recently played tracks to remove from unrecent:")
+#     streamlit.json(to_be_removed_from_unrecent)
+#     sync_to_be_removed = streamlit.button("Remove these Recently Played")
+#     if sync_to_be_removed:
+#         streamlit.write("Attempting to remove items to playlist")
+#         remove_from_playlist(headers, unrecent_playlist, list(to_be_removed_from_unrecent.keys()))
+#         streamlit.experimental_rerun()
+#
+# to_be_added_to_master = dict()
+# for id in recent_list:
+#     if id not in master_list:
+#         to_be_added_to_master[id] = recent_list[id]
+# if to_be_added_to_master:
+#     streamlit.write("Recent tracks not found in master playlist")
+#     add_to_master_checks = dict()
+#     for id in to_be_added_to_master:
+#         label = f"{recent_list[id]['name']} by {recent_list[id]['artists'][0]['name']}"
+#         add_to_master_checks[id] = streamlit.checkbox(label)
+#
+summarize_playlist(recent_playlist, recent_list)
+summarize_playlist(unrecent_playlist, unrecent_list)
+summarize_playlist(master_playlist, master_list)
+# list_playlist(master_playlist, master_list)
