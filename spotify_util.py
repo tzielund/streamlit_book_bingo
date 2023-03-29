@@ -284,3 +284,45 @@ def get_track_url(trackid) -> str:
 
 def get_track_markdown(track_details) -> str:
     return f"[{get_track_label(track_details)}]({get_track_url(track_details['id'])})"
+
+def write_track_list(track_list, include_set:set = None, context=streamlit):
+    if include_set is None:
+        include_set = set(track_list.keys())
+    rownumber = 0
+    for trackid in include_set:
+        track_details = track_list.get(trackid)
+        if track_details:
+            context.write(f"{rownumber}: {get_track_markdown(track_details)}")
+        else:
+            context.write(f"{rownumber}: {trackid} (not found)")
+        rownumber += 1
+
+def get_artist_top_tracks(headers, artist_id, ignore_cache=False):
+    """Gets top tracks for given artist from cache or from the API."""
+    playlist_file = CACHE_DIR + "ARTIST_TOP_" + artist_id + ".json"
+    if not ignore_cache and os.path.exists(playlist_file):
+        with open (playlist_file) as IN:
+            playlist_details = json.load(IN)
+            return playlist_details
+    # If here, we must extract the full playlist and cache it
+    streamlit.write(f"Caching artist top tracks for {artist_id}")
+    url = f"https://api.spotify.com/v1/artists/{artist_id}/top-tracks?market=US"
+    # url = f"https://api.spotify.com/v1/search?fear+artist:{artist_id}"
+    print (url)
+    response = requests.get(url, headers=headers)
+    print (f"done {response.status_code}")
+    if response.status_code != 200:
+        print(response.status_code)
+        print(response.text)
+        raise RuntimeError(f"Problem getting top tracks for {artist_id}")
+    jsondata = response.json()
+    itemlist = jsondata["tracks"]
+    tracklist = list()
+    for item in itemlist:
+        trackwrapper = dict()
+        trackwrapper["track"] = item
+        tracklist.append(trackwrapper)
+    playlist_metadata = index_playlist(tracklist)
+    with open(playlist_file, 'w') as OUT:
+        OUT.write(json.dumps(playlist_metadata, indent=4))
+    return playlist_metadata

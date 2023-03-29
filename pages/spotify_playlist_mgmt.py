@@ -17,7 +17,10 @@ if "spotify_bearer" in streamlit.session_state:
 token = streamlit.text_input("Paste in bearer token", value=bearer)
 if not token:
     streamlit.stop()
-streamlit.session_state["spotify_bearer"] = token
+if token != bearer:
+    streamlit.session_state["spotify_bearer"] = token
+    streamlit.experimental_rerun()
+
 
 headers = CaseInsensitiveDict()
 headers["Authorization"] = token
