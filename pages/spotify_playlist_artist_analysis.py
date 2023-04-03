@@ -1,3 +1,4 @@
+import json
 import os
 import re
 
@@ -79,6 +80,8 @@ def normalize_name(raw_name: str) -> str:
         fixed_name = leading_parenthetical.match(fixed_name).group(1)
     fixed_name = fixed_name.split("(",2)[0]
     fixed_name = fixed_name.split("-",2)[0]
+    fixed_name = fixed_name.strip()
+    fixed_name = " ".join(fixed_name.split())
     return fixed_name
 
 default_artists = [{'name':'no name','id':0}]
@@ -123,7 +126,13 @@ for trackid in select_playlist_list.keys():
 select_artist_playlist_tracks_by_normname = group_playlist_by_normname(select_artist_playlist_tracks)
 select_playlist_normname_set = set(select_artist_playlist_tracks_by_normname.keys())
 
-select_artist_top_tracks = spotify_util.get_artist_top_tracks(headers, select_artist_id)
+all_of_them_checkbox = streamlit.checkbox("Show all?")
+
+if all_of_them_checkbox:
+    select_artist_top_tracks = spotify_util.get_artist_all_tracks(headers, select_artist_id)
+else:
+    select_artist_top_tracks = spotify_util.get_artist_top_tracks(headers, select_artist_id)
+
 select_artist_top_tracks_by_normname = group_playlist_by_normname(select_artist_top_tracks)
 select_top_normname_set = set(select_artist_top_tracks_by_normname.keys())
 
@@ -131,24 +140,38 @@ playlist_common = select_playlist_normname_set.intersection(select_top_normname_
 playlist_not_top = select_playlist_normname_set - select_top_normname_set
 top_not_playlist = (select_top_normname_set - select_playlist_normname_set) - target_playlist_set
 
-# streamlit.header("Top Track Names")
-# streamlit.json(list(select_top_normname_set))
-#
-# streamlit.header("Playlist Track Names")
-# streamlit.json(list(select_playlist_normname_set))
-#
+streamlit.header("Set Details")
+streamlit.write(f"* Artist top tracks: {len(select_top_normname_set)}")
+streamlit.write(f"* Artist playlist tracks: {len(select_playlist_normname_set)}")
 
+streamlit.header("Top tracks in playlist")
+playlist_common_sorted = list(playlist_common)
+playlist_common_sorted.sort()
+for normname in playlist_common_sorted:
+    fake_checkbox = streamlit.checkbox(normname, key=f"FakeCheck{normname}", disabled=True, value=True)
+
+show_more_checklist = dict()
 add_to_checklist = dict()
 num_to_add = 0
 list_to_add = list()
 streamlit.header("Top tracks not in playlist")
 # streamlit.json(list(top_not_playlist))
-for normname in top_not_playlist:
-    add_to_checklist[normname] = streamlit.checkbox(normname, key=f"AddCheck{normname}")
-    if add_to_checklist[normname]:
-        num_to_add += 1
-        list_to_add.append(normname)
-add_them = streamlit.button(f"Add these {num_to_add} to {target_playlist_name}")
+top_not_playlist_sorted = list(top_not_playlist)
+top_not_playlist_sorted.sort(key=lambda x:len(select_artist_top_tracks_by_normname[x]), reverse=True)
+for normname in top_not_playlist_sorted:
+    detailed_list = select_artist_top_tracks_by_normname[normname]
+    show_more_checklist[normname] = streamlit.checkbox(f"{normname} ({len(detailed_list)})", key=f"AddCheck{normname}")
+    if show_more_checklist[normname]:
+        for trackid in detailed_list:
+            track_metadata = select_artist_top_tracks[trackid]
+            trackname = track_metadata['name']
+            print(f"Showing {trackname} from {json.dumps(track_metadata)}")
+            add_to_checklist[trackid] = streamlit.checkbox(f"add + {trackname}", key=f'add_{trackid}')
+            if add_to_checklist[trackid]:
+                num_to_add += 1
+                list_to_add.append(normname)
+
+add_them = streamlit.button(f"Add these {num_to_add} to {target_playlist_name}",disabled=not(num_to_add))
 
 if add_them:
     specifics_to_add = list()
@@ -159,10 +182,6 @@ if add_them:
     spotify_util.get_cached_playlist_list(headers, ignore_cache=True)
     streamlit.experimental_rerun()
 
-
-streamlit.header("Top tracks in playlist")
-for normname in playlist_common:
-    fake_checkbox = streamlit.checkbox(normname, key=f"FakeCheck{normname}", disabled=True, value=True)
 
 remove_from_checklist = dict()
 num_to_remove = 0

@@ -11,11 +11,26 @@ import streamlit
 CACHE_DIR = "spotify_cache/"
 os.makedirs(CACHE_DIR, exist_ok=True)
 
+PLAYLIST_CACHE_DIR = f"{CACHE_DIR}playlists/"
+os.makedirs(PLAYLIST_CACHE_DIR, exist_ok=True)
+
+ARTIST_TOP_CACHE_DIR = f"{CACHE_DIR}artist_top/"
+os.makedirs(ARTIST_TOP_CACHE_DIR, exist_ok=True)
+
+ARTIST_ALBUMS_CACHE_DIR = f"{CACHE_DIR}artist_albums/"
+os.makedirs(ARTIST_ALBUMS_CACHE_DIR, exist_ok=True)
+
+ALBUM_TRACKS_CACHE_DIR = f"{CACHE_DIR}album_tracks/"
+os.makedirs(ALBUM_TRACKS_CACHE_DIR, exist_ok=True)
+
+ARTIST_ALL_TRACKS_CACHE_DIR = f"{CACHE_DIR}artist_all_tracks/"
+os.makedirs(ARTIST_ALL_TRACKS_CACHE_DIR, exist_ok=True)
+
 special_playlist_recent = "$RECENT_100"
 special_playlist_liked = "$LIKED"
 
 def get_cached_playlist_list(headers, ignore_cache=False):
-    cache_filename = f"{CACHE_DIR}playlist_list.json"
+    cache_filename = f"{PLAYLIST_CACHE_DIR}playlist_list.json"
     if not ignore_cache and os.path.exists(cache_filename):
         with open (cache_filename) as IN:
             return json.load(IN)
@@ -122,7 +137,7 @@ def cache_playlist(headers, playlist_id, playlist_metadata, ignore_cache=False):
 
 def get_liked(headers, ignore_cache=False):
     """Looks for liked/saved tracks either from cache or API and returns a playlist-like index list."""
-    recent_cache_filename = f"{CACHE_DIR}liked_list.json"
+    recent_cache_filename = f"{PLAYLIST_CACHE_DIR}liked_list.json"
     if not ignore_cache and os.path.exists(recent_cache_filename):
         with open (recent_cache_filename) as IN:
             return json.load(IN)
@@ -168,7 +183,7 @@ def get_liked(headers, ignore_cache=False):
 
 def get_recently_played(headers, ignore_cache=False):
     """Looks for recent tracks either from cache or API and returns a playlist-like index list."""
-    recent_cache_filename = f"{CACHE_DIR}recent_list.json"
+    recent_cache_filename = f"{PLAYLIST_CACHE_DIR}recent_list.json"
     if not ignore_cache and os.path.exists(recent_cache_filename):
         with open (recent_cache_filename) as IN:
             return json.load(IN)
@@ -280,7 +295,7 @@ def get_track_label(track_details) -> str:
     return track_label
 
 def get_track_url(trackid) -> str:
-    return f"https://open.spotify.com/tracks/{trackid}"
+    return f"https://open.spotify.com/track/{trackid}"
 
 def get_track_markdown(track_details) -> str:
     return f"[{get_track_label(track_details)}]({get_track_url(track_details['id'])})"
@@ -299,7 +314,7 @@ def write_track_list(track_list, include_set:set = None, context=streamlit):
 
 def get_artist_top_tracks(headers, artist_id, ignore_cache=False):
     """Gets top tracks for given artist from cache or from the API."""
-    playlist_file = CACHE_DIR + "ARTIST_TOP_" + artist_id + ".json"
+    playlist_file = ARTIST_TOP_CACHE_DIR + artist_id + ".json"
     if not ignore_cache and os.path.exists(playlist_file):
         with open (playlist_file) as IN:
             playlist_details = json.load(IN)
@@ -326,3 +341,79 @@ def get_artist_top_tracks(headers, artist_id, ignore_cache=False):
     with open(playlist_file, 'w') as OUT:
         OUT.write(json.dumps(playlist_metadata, indent=4))
     return playlist_metadata
+
+def get_artist_albums(headers, artist_id, ignore_cache=False):
+    """Gets a list of albums for the artist"""
+    playlist_file = ARTIST_ALBUMS_CACHE_DIR + artist_id + ".json"
+    if not ignore_cache and os.path.exists(playlist_file):
+        with open (playlist_file) as IN:
+            playlist_details = json.load(IN)
+            return playlist_details
+    # If here, we must extract the full playlist and cache it
+    result = dict()
+    streamlit.write(f"Caching artist albums {artist_id}")
+    url = f"https://api.spotify.com/v1/artists/{artist_id}/albums?limit=50"
+    print (url)
+    response = requests.get(url, headers=headers)
+    print (f"done {response.status_code}")
+    if response.status_code != 200:
+        print(response.status_code)
+        print(response.text)
+        raise RuntimeError(f"Problem getting top albums for {artist_id}")
+    jsondata = response.json()
+    items = jsondata["items"]
+    for item in items:
+        result[item['id']] = item
+    with open(playlist_file, 'w') as OUT:
+        OUT.write(json.dumps(result, indent=4))
+    return result
+
+def get_album_tracks(headers, album_id, ignore_cache=False):
+    """Gets list of tracks from album"""
+    playlist_file = ALBUM_TRACKS_CACHE_DIR + album_id + ".json"
+    if not ignore_cache and os.path.exists(playlist_file):
+        with open (playlist_file) as IN:
+            playlist_details = json.load(IN)
+            return playlist_details
+    # If here, we must extract the full playlist and cache it
+    streamlit.write(f"Caching album tracks for {album_id}")
+    url = f"https://api.spotify.com/v1/albums/{album_id}/tracks?limit=50"
+    # url = f"https://api.spotify.com/v1/search?fear+artist:{artist_id}"
+    print (url)
+    response = requests.get(url, headers=headers)
+    print (f"done {response.status_code}")
+    if response.status_code != 200:
+        print(response.status_code)
+        print(response.text)
+        raise RuntimeError(f"Problem getting  tracks for album {album_id}")
+    jsondata = response.json()
+    itemlist = jsondata["items"]
+    result=dict()
+    for item in itemlist:
+        result[item['id']] = item
+    with open(playlist_file, 'w') as OUT:
+        OUT.write(json.dumps(result, indent=4))
+    return result
+
+def get_artist_all_tracks(headers, artist_id, ignore_cache=False):
+    """Gets all tracks from all albums for given artist from cache or from the API."""
+    playlist_file = ARTIST_ALL_TRACKS_CACHE_DIR + artist_id + ".json"
+    # if not ignore_cache and os.path.exists(playlist_file):
+    #     with open (playlist_file) as IN:
+    #         playlist_details = json.load(IN)
+    #         return playlist_details
+    # If here, we must extract the full playlist and cache it
+    streamlit.write(f"Caching artist total tracks for {artist_id}")
+    albums = get_artist_albums(headers, artist_id, ignore_cache=ignore_cache)
+    all_tracks = dict()
+    for albumid in albums.keys():
+        album_tracks = get_album_tracks(headers, albumid, ignore_cache=ignore_cache)
+        for trackid in album_tracks.keys():
+            track_metadata = album_tracks[trackid]
+            artists = track_metadata.get("artists",[])
+            for artist in artists:
+                if artist["id"] == artist_id:
+                    all_tracks[trackid] = album_tracks[trackid]
+    with open(playlist_file, 'w') as OUT:
+        OUT.write(json.dumps(all_tracks, indent=4))
+    return all_tracks
