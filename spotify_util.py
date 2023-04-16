@@ -26,6 +26,9 @@ os.makedirs(ALBUM_TRACKS_CACHE_DIR, exist_ok=True)
 ARTIST_ALL_TRACKS_CACHE_DIR = f"{CACHE_DIR}artist_all_tracks/"
 os.makedirs(ARTIST_ALL_TRACKS_CACHE_DIR, exist_ok=True)
 
+ARTIST_RELATED_CACHE_DIR = f"{CACHE_DIR}artist_related_artists/"
+os.makedirs(ARTIST_RELATED_CACHE_DIR, exist_ok=True)
+
 special_playlist_recent = "$RECENT_100"
 special_playlist_liked = "$LIKED"
 
@@ -417,3 +420,30 @@ def get_artist_all_tracks(headers, artist_id, ignore_cache=False):
     with open(playlist_file, 'w') as OUT:
         OUT.write(json.dumps(all_tracks, indent=4))
     return all_tracks
+
+def get_artist_related_artist(headers, artist_id, ignore_cache=False):
+    """Gets a list of related artists for the artist"""
+    playlist_file = ARTIST_RELATED_CACHE_DIR + artist_id + ".json"
+    if not ignore_cache and os.path.exists(playlist_file):
+        with open (playlist_file) as IN:
+            playlist_details = json.load(IN)
+            return playlist_details
+    # If here, we must extract the full playlist and cache it
+    result = dict()
+    # streamlit.write(f"Caching artist albums {artist_id}")
+    url = f"https://api.spotify.com/v1/artists/{artist_id}/related-artists"
+    print (url)
+    response = requests.get(url, headers=headers)
+    time.sleep(1)
+    print (f"done {response.status_code}")
+    if response.status_code != 200:
+        print(response.status_code)
+        print(response.text)
+        raise RuntimeError(f"Problem getting top albums for {artist_id}")
+    jsondata = response.json()
+    items = jsondata["artists"]
+    for item in items:
+        result[item['id']] = item
+    with open(playlist_file, 'w') as OUT:
+        OUT.write(json.dumps(result, indent=4))
+    return result

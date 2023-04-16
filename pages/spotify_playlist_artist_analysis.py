@@ -5,6 +5,7 @@ import re
 import streamlit
 from requests.structures import CaseInsensitiveDict
 
+import secondhand_util
 import spotify_util
 from spotify_util import get_cached_playlist_list, cache_playlist, get_recently_played, add_to_playlist, \
     remove_from_playlist, CACHE_DIR
@@ -23,12 +24,9 @@ if token != bearer:
     streamlit.session_state["spotify_bearer"] = token
     streamlit.experimental_rerun()
 
-
 headers = CaseInsensitiveDict()
 headers["Authorization"] = token
 headers["Content-Type"] = "application/json"
-
-
 
 
 #
@@ -103,7 +101,7 @@ for trackid in select_playlist_list.keys():
 artist_list = list(artist_set)
 artist_list.sort(key=lambda x: artist_count[x], reverse=True)
 select_artist_id = streamlit.sidebar.radio("Select an artist to consider", options=artist_list,
-                                    format_func=lambda x:artist_set[x])
+                                    format_func=lambda x:f"{artist_set[x]} ({artist_count[x]})")
 select_artist_name = artist_set[select_artist_id]
 
 def group_playlist_by_normname(playlist_items):
@@ -169,16 +167,16 @@ for normname in top_not_playlist_sorted:
             add_to_checklist[trackid] = streamlit.checkbox(f"add + {trackname}", key=f'add_{trackid}')
             if add_to_checklist[trackid]:
                 num_to_add += 1
-                list_to_add.append(normname)
+                list_to_add.append(trackid)
 
 add_them = streamlit.button(f"Add these {num_to_add} to {target_playlist_name}",disabled=not(num_to_add))
 
 if add_them:
-    specifics_to_add = list()
-    for normname in list_to_add:
-        specifics_to_add.extend(select_artist_top_tracks_by_normname[normname].keys())
+    # specifics_to_add = list()
+    # for normname in list_to_add:
+    #     specifics_to_add.extend(select_artist_top_tracks_by_normname[normname].keys())
     print ("Adding...")
-    spotify_util.add_to_playlist(headers, target_playlist_metadata, specifics_to_add)
+    spotify_util.add_to_playlist(headers, target_playlist_metadata, list_to_add)
     spotify_util.get_cached_playlist_list(headers, ignore_cache=True)
     streamlit.experimental_rerun()
 
@@ -186,12 +184,25 @@ if add_them:
 remove_from_checklist = dict()
 num_to_remove = 0
 streamlit.header("Playlist deep tracks")
+list_to_remove = list()
 for normname in playlist_not_top:
     remove_from_checklist[normname] = streamlit.checkbox(normname, key=f"RemoveCheck{normname}")
     if remove_from_checklist[normname]:
         num_to_remove += 1
-remove_them = streamlit.button(f"Remove from {select_playlist_name} and add to {target_playlist_name}", disabled=num_to_remove)
+        list_to_remove.append(normname)
 
+remove_them = streamlit.button(f"Remove from {select_playlist_name} and add to {target_playlist_name}",
+                                   disabled=not(num_to_remove))
+if remove_them:
+    actual_to_remove = list()
+    for normname in list_to_remove:
+        track_details = select_artist_playlist_tracks_by_normname[normname]
+        trackids = track_details.keys()
+        actual_to_remove.extend(trackids)
+    remove_from_playlist(headers, select_playlist_metadata, actual_to_remove)
+    add_to_playlist(headers, target_playlist_metadata, actual_to_remove)
+    # get_cached_playlist_list(headers, ignore_cache=True)
+    streamlit.experimental_rerun()
 
 
 #
