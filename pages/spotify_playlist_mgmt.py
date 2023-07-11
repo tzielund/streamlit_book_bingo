@@ -115,44 +115,6 @@ if force_refresh_button:
         streamlit.stop()
     streamlit.experimental_rerun()
 
-if playlist_dupes:
-    remove_dupes_button = streamlit.button(f"Remove {len(playlist_dupes)} duplicates from {select_playlist_name}")
-    if remove_dupes_button:
-        spotify_util.deduplicate_playlist(headers, select_playlist_metadata, select_playlist_list)
-        streamlit.write("Caching modified list")
-        get_cached_playlist_list(headers, ignore_cache=True)
-        cache_playlist(headers, select_playlist_id, select_playlist_metadata)
-        clicker = streamlit.button("Click to refresh")
-        if not clicker:
-            streamlit.stop()
-        streamlit.experimental_rerun()
-
-if compare_only:
-    add_from_compare_button = streamlit.button(f"Add {len(compare_only)} from {compare_playlist_name} to {select_playlist_name}")
-    if add_from_compare_button:
-        streamlit.write("Adding songs...")
-        add_to_playlist(headers, select_playlist_metadata, list(compare_only))
-        streamlit.write("Caching modified list")
-        get_cached_playlist_list(headers, ignore_cache=True)
-        cache_playlist(headers, select_playlist_id, select_playlist_metadata)
-        clicker = streamlit.button("Click to refresh")
-        if not clicker:
-            streamlit.stop()
-        streamlit.experimental_rerun()
-
-if shared_tracks:
-    remove_shared_from_select_button = streamlit.button(f"Remove {len(shared_tracks)} shared tracks from {select_playlist_name}")
-    if remove_shared_from_select_button:
-        streamlit.write("Removing songs...")
-        remove_from_playlist(headers, select_playlist_metadata, list(shared_tracks))
-        streamlit.write("Caching modified list")
-        get_cached_playlist_list(headers, ignore_cache=True)
-        cache_playlist(headers, select_playlist_id, select_playlist_metadata)
-        clicker = streamlit.button("Click to refresh")
-        if not clicker:
-            streamlit.stop()
-        streamlit.experimental_rerun()
-
 
 
 
@@ -163,17 +125,70 @@ bunch_sequence = {
 }
 streamlit.header("Tracks in selected and compare lists")
 rownumber = 1
-expanders = list()
+expanders = dict()
+selected_tracks_in_bunch = dict()
 for bunch_label in bunch_sequence:
+    selected_tracks_in_bunch[bunch_label] = dict()
     bunch_set = bunch_sequence[bunch_label]
     bunch_label_with_size = f"{bunch_label} ({len(bunch_set)})"
-    expanders.append(streamlit.checkbox(bunch_label_with_size))
-    if expanders[-1]:
+    expanders[bunch_label] = (streamlit.checkbox(bunch_label_with_size))
+    if expanders[bunch_label]:
         for trackid in bunch_set:
             track_details = union_lookup[trackid]
-            idxcol, label, isdup = streamlit.columns([1,5,1])
-            idxcol.write(rownumber)
-            label.write(spotify_util.get_track_markdown(track_details))
-            if track_details.get("duplicate_count",0):
-                isdup.write(track_details["duplicate_count"])
+            label = str(rownumber) + ": "
+            label += track_details["name"]
+            label += spotify_util.get_track_label(track_details)
+            this_selected_track_checkbox = streamlit.checkbox(label, key=f"select_{trackid}")
+            if this_selected_track_checkbox:
+                selected_tracks_in_bunch[bunch_label][trackid] = this_selected_track_checkbox
+                streamlit.markdown(spotify_util.get_track_markdown(track_details))
             rownumber += 1
+
+group = "Shared Tracks"
+if selected_tracks_in_bunch[group] or not expanders[group]:
+    streamlit.write("Options for selected shared tracks:")
+    if expanders[group]:
+        affected_list = list(selected_tracks_in_bunch[group].keys())
+    else:
+        affected_list = bunch_sequence[group]
+    remove_shared_from_select = streamlit.button(f"Remove shared from {select_playlist_name}")
+    if remove_shared_from_select:
+        spotify_util.remove_from_playlist(headers, select_playlist_metadata, affected_list)
+        streamlit.stop()
+    remove_shared_from_compare = streamlit.button(f"Remove shared from {compare_playlist_name}")
+    if remove_shared_from_compare:
+        spotify_util.remove_from_playlist(headers, compare_playlist_metadata, affected_list)
+        streamlit.stop()
+
+group = "Select Only"
+if selected_tracks_in_bunch[group] or not expanders[group]:
+    streamlit.write(f"Options for {select_playlist_name} only tracks:")
+    if expanders[group]:
+        affected_list = list(selected_tracks_in_bunch[group].keys())
+    else:
+        affected_list = bunch_sequence[group]
+    remove_selonly_from_select = streamlit.button(f"Remove these from {select_playlist_name}")
+    if remove_selonly_from_select:
+        spotify_util.remove_from_playlist(headers, select_playlist_metadata, affected_list)
+        streamlit.stop()
+    add_selonly_to_compare = streamlit.button(f"Add these to {compare_playlist_name}")
+    if add_selonly_to_compare:
+        spotify_util.add_to_playlist(headers, compare_playlist_metadata, affected_list)
+        streamlit.stop()
+
+group = "Compare Only"
+if selected_tracks_in_bunch[group] or not expanders[group]:
+    streamlit.write(f"Options for {compare_playlist_name} only tracks:")
+    if expanders[group]:
+        affected_list = list(selected_tracks_in_bunch[group].keys())
+    else:
+        affected_list = bunch_sequence[group]
+    add_comonly_to_select = streamlit.button(f"Add these to {select_playlist_name}")
+    if add_comonly_to_select:
+        spotify_util.add_to_playlist(headers, select_playlist_metadata, affected_list)
+        streamlit.stop()
+    remove_comonly_from_compare = streamlit.button(f"Remove these from {compare_playlist_name}")
+    if remove_comonly_from_compare:
+        spotify_util.remove_from_playlist(headers, compare_playlist_metadata, affected_list)
+        streamlit.stop()
+

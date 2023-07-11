@@ -100,9 +100,24 @@ for trackid in select_playlist_list.keys():
 # Pick an artist, any artist
 artist_list = list(artist_set)
 artist_list.sort(key=lambda x: artist_count[x], reverse=True)
-select_artist_id = streamlit.sidebar.radio("Select an artist to consider", options=artist_list,
+orig_select_artist_id = streamlit.sidebar.radio("Select an artist to consider", options=artist_list,
                                     format_func=lambda x:f"{artist_set[x]} ({artist_count[x]})")
-select_artist_name = artist_set[select_artist_id]
+orig_select_artist_name = artist_set[orig_select_artist_id]
+
+streamlit.write(f"Selected artist: {orig_select_artist_name}")
+streamlit.header("Similar artists")
+
+related_artists = spotify_util.get_artist_related_artist(headers, orig_select_artist_id)
+suggested_artists = dict()
+suggested_artists[orig_select_artist_id] = orig_select_artist_name
+for related_id in related_artists.keys():
+    if related_id not in artist_set:
+        suggested_artists[related_id] = related_artists[related_id]["name"]
+
+select_artist_id = streamlit.selectbox("Pick this artist or a similar artist not represented",
+                                       options=suggested_artists.keys(),
+                                       format_func=lambda x:suggested_artists[x])
+select_artist_name = suggested_artists[select_artist_id]
 
 def group_playlist_by_normname(playlist_items):
     result = dict()
@@ -203,6 +218,7 @@ if remove_them:
     add_to_playlist(headers, target_playlist_metadata, actual_to_remove)
     # get_cached_playlist_list(headers, ignore_cache=True)
     streamlit.experimental_rerun()
+
 
 
 #

@@ -2,7 +2,6 @@
 
 import streamlit
 from requests.structures import CaseInsensitiveDict
-
 import secondhand_util
 import spotify_util
 from secondhand_util import SecondhandArtistSearchHtmlParser
@@ -56,26 +55,17 @@ for trackid in songlist:
 sorted_unmatched = sorted(artist_unmatched, key=lambda x:artist_count[x], reverse=True)
 sorted_matched = sorted(artist_matched, key=lambda x:artist_count[x], reverse=True)
 
-select_artist = streamlit.selectbox("Select an artist", options=sorted_unmatched,
-                                            format_func=lambda x: artist_list[x])
-select_artist_name = artist_list[select_artist]
-select_artist_search_link = secondhand_util.link_simple_search(select_artist_name)
-streamlit.markdown(f"[{select_artist_name}]({select_artist_search_link})")
+if sorted_unmatched:
+    # Match a missing artist and repeat until empty
+    select_artist = streamlit.selectbox("Select an artist", options=sorted_unmatched,
+                                                format_func=lambda x: artist_list[x])
+    select_artist_name = artist_list[select_artist]
+    select_artist_search_link = secondhand_util.link_simple_search(select_artist_name)
+    streamlit.markdown(f"[{select_artist_name}]({select_artist_search_link})")
 
-if select_artist in KNOWN_ARTIST_MAPPING.keys():
-    streamlit.write(f"Spotify to Secondhand mapping set: {select_artist} = {KNOWN_ARTIST_MAPPING[select_artist]}")
-    unset_artist_match_button = streamlit.button("Unset this match")
-    if unset_artist_match_button:
-        del(KNOWN_ARTIST_MAPPING[select_artist])
-        secondhand_util.store_secondhand_streamlit_artist_mapping(KNOWN_ARTIST_MAPPING)
-        streamlit.experimental_rerun()
-else:
     streamlit.write(f"Spotify to Secondhand mapping unknown")
-    artist_search = secondhand_util.cache_simple_search(select_artist_name)
-    artist_search_parser = SecondhandArtistSearchHtmlParser()
-    artist_search_parser.reset_search()
-    artist_search_parser.feed(artist_search)
-    hrefs = artist_search_parser.get_search_results()
+    hrefs = secondhand_util.cache_simple_search(select_artist_name)
+    print (hrefs)
     select_artist_match = streamlit.selectbox("Select artist match",
                                               options=list(hrefs.keys()),
                                               format_func=lambda x: hrefs[x])
@@ -92,4 +82,53 @@ else:
         streamlit.experimental_rerun()
     streamlit.json(hrefs)
 
+else:
+    # Nobody unmatched, so review all the matches
+    verify_checkbox = streamlit.checkbox("Verify matches?")
+    if verify_checkbox:
+        for select_artist in sorted_matched:
+            select_artist_name = artist_list[select_artist]
+            select_artist_search_link = secondhand_util.link_simple_search(select_artist_name)
+            matched_href = KNOWN_ARTIST_MAPPING[select_artist]
+            if not matched_href:
+                streamlit.markdown(f"* [{select_artist_name}]({select_artist_search_link}) is not matched in Secondhand Songs")
+                erase_this = streamlit.button("Try again", key=f"erase_{select_artist}")
+                if erase_this:
+                    del(KNOWN_ARTIST_MAPPING[select_artist])
+                    secondhand_util.store_secondhand_streamlit_artist_mapping(KNOWN_ARTIST_MAPPING)
+                    streamlit.experimental_rerun()
+            else:
+                matched_link = f"https://secondhandsongs.com{matched_href}"
+                hrefs = secondhand_util.cache_simple_search(select_artist_name)
+                if matched_href in hrefs:
+                    matched_name = hrefs[matched_href]
+                    streamlit.markdown(f"* [{select_artist_name}]({select_artist_search_link}) "
+                                       f"matched to [{matched_name}]({matched_link})")
+                    erase_this = streamlit.button("Erase this match", key=f"erase_{select_artist}")
+                    if erase_this:
+                        del(KNOWN_ARTIST_MAPPING[select_artist])
+                        secondhand_util.store_secondhand_streamlit_artist_mapping(KNOWN_ARTIST_MAPPING)
+                        streamlit.experimental_rerun()
+                else:
+                    streamlit.markdown(f"* [{select_artist_name}]({select_artist_search_link}) "
+                                       f"matched to: [{matched_href}]({matched_link})")
+                    erase_this = streamlit.button("Erase this match", key=f"erase_{select_artist}")
+                    if erase_this:
+                        del(KNOWN_ARTIST_MAPPING[select_artist])
+                        secondhand_util.store_secondhand_streamlit_artist_mapping(KNOWN_ARTIST_MAPPING)
+                        streamlit.experimental_rerun()
 
+
+# All good, let's load covers
+
+
+streamlit.header("Covers")
+select_artist_2 = streamlit.selectbox("Select an artist to see covers", options=sorted_matched,
+                                    format_func=lambda x: artist_list[x])
+select_artist_name_2 = artist_list[select_artist_2]
+select_artist_secondhand_id = KNOWN_ARTIST_MAPPING[select_artist_2]
+if select_artist_secondhand_id:
+    covers = secondhand_util.cache_covers_list(select_artist_secondhand_id)
+    covers
+else:
+    streamlit.write("Artist not matched for Secondhand Songs")
