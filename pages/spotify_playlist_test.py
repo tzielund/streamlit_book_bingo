@@ -66,8 +66,10 @@ if redo_playlist_button:
     get_cached_playlist_list(headers, ignore_cache=True)
     streamlit.experimental_rerun()
 refresh_rp = streamlit.sidebar.button("Reload recently played")
+max_depth_str = streamlit.sidebar.selectbox("How many recent songs to include", options=["50","100","200","500","1000","2000","5000"])
+max_depth = int(max_depth_str)
 if refresh_rp:
-    get_recently_played(headers, ignore_cache=True)
+    get_recently_played(headers, ignore_cache=True, depth=max_depth)
     streamlit.experimental_rerun()
 
 total_playlist_name = "master playlist"
@@ -126,6 +128,43 @@ if recent_to_add_button:
     get_cached_playlist_list(headers, ignore_cache=True)
     streamlit.experimental_rerun()
 
+# Double-check that there are no recently played track synonyms (same title and artist) as the not-recently-played tracks
+recent_song_name_artist_set = dict()
+for trackid in recent_play_list.keys():
+    item = recent_play_list[trackid]
+    name_artist_str = f"{item['name']} by {item['artists'][0]['name']}"
+    recent_song_name_artist_set[name_artist_str] = trackid
+not_recent_song_name_artist_set = dict()
+for trackid in remaining_list.keys():
+    item = remaining_list[trackid]
+    name_artist_str = f"{item['name']} by {item['artists'][0]['name']}"
+    if name_artist_str in recent_song_name_artist_set.keys():
+        not_recent_song_name_artist_set[name_artist_str] = trackid
+if not_recent_song_name_artist_set:
+    streamlit.header("Recently played track synonyms")
+    synonyms_to_add_button = streamlit.button(
+        f"Add {len(not_recent_song_name_artist_set)} recently played synonyms to {sofar_playlist_name}"
+    )
+    for name_artist_str in not_recent_song_name_artist_set.keys():
+        streamlit.markdown(f"* {name_artist_str}")
+    if synonyms_to_add_button:
+        trackids_to_add = set()
+        for name_artist_str in not_recent_song_name_artist_set.keys():
+            trackids_to_add.add(not_recent_song_name_artist_set[name_artist_str])
+        spotify_util.add_to_playlist(headers, sofar_playlist, trackids_to_add)
+        spotify_util.remove_from_playlist(headers, remaining_playlist, trackids_to_add)
+        get_cached_playlist_list(headers, ignore_cache=True)
+        streamlit.experimental_rerun()
+
+
+# Note any recently played tracks that are already in the so-far playlist
+recent_already_in_sofar = recent_play_set.intersection(sofar_set)
+debug_button = streamlit.checkbox("Recently played tracks already in so-far playlist")
+if debug_button:
+    for trackid in recent_already_in_sofar:
+        item = recent_play_list[trackid]
+        streamlit.markdown(f"* {item['name']}")
+
 # Double-check if there are any so-far played tracks still in the remaining list
 sofar_to_remove_set = sofar_set.intersection(remaining_set)
 sofar_to_remove_button = streamlit.button(
@@ -180,7 +219,16 @@ if no_longer_button:
 summarize_playlist({'id':"$RECENT", 'tracks':{'total':len(recent_play_set)}}, recent_play_list)
 list_recent_check = streamlit.checkbox("Show recent plays")
 if list_recent_check:
-    spotify_util.write_track_list(recent_play_list)
+    # List all the recent plays, and note for each whether it's present in either the so-far or remaining playlists
+    for trackid in recent_play_list.keys():
+        item = recent_play_list[trackid]
+        label = f"{item['name']} by {item['artists'][0]['name']}"
+        url = f"https://open.spotify.com/track/{trackid}"
+        if trackid in sofar_set:
+            streamlit.markdown(f"* [{label}]({url}) -- {sofar_playlist_name}")
+        if trackid in remaining_set:
+            streamlit.markdown(f"* [{label}]({url}) -- {remaining_playlist_name}")
+    # spotify_util.write_track_list(recent_play_list)
 
 summarize_playlist(sofar_playlist, sofar_list)
 list_sofar_check = streamlit.checkbox(f"Show {sofar_playlist_name}")
@@ -190,7 +238,18 @@ if list_sofar_check:
 summarize_playlist(remaining_playlist, remaining_list)
 list_remaining_check = streamlit.checkbox(f"Show {remaining_playlist_name}")
 if list_remaining_check:
-    spotify_util.write_track_list(remaining_list)
+    checked_remaining_songs_list = spotify_util.song_checkbox_group(remaining_list, False, "checked_remaining_")
+    if checked_remaining_songs_list:
+        manual_mark_button = streamlit.button(f"Mark {len(checked_remaining_songs_list)} songs as already played manually")
+        if manual_mark_button:
+            spotify_util.add_to_playlist(headers, sofar_playlist, checked_remaining_songs_list)
+            spotify_util.remove_from_playlist(headers, remaining_playlist, checked_remaining_songs_list)
+            get_cached_playlist_list(headers, ignore_cache=True)
+            acknolwedge_manual_mark = streamlit.button("Acknowledge")
+            if acknolwedge_manual_mark:
+                streamlit.experimental_rerun()
+            else:
+                streamlit.stop()
 
 summarize_playlist(total_playlist, total_list)
 list_total_check = streamlit.checkbox(f"Show {total_playlist_name}")

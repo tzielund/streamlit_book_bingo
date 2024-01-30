@@ -184,7 +184,7 @@ def get_liked(headers, ignore_cache=False):
     return recent_index
 
 
-def get_recently_played(headers, ignore_cache=False):
+def get_recently_played(headers, ignore_cache=False, depth=50):
     """Looks for recent tracks either from cache or API and returns a playlist-like index list."""
     recent_cache_filename = f"{PLAYLIST_CACHE_DIR}recent_list.json"
     if not ignore_cache and os.path.exists(recent_cache_filename):
@@ -223,7 +223,7 @@ def get_recently_played(headers, ignore_cache=False):
             recent_list_struct["played_at"] = pAt
             recent_list_struct["played_at_timestamp"] = pAtTs
             recent_list.append(recent_list_struct)
-        if len(recent_list) > 200 or len(recent_items) == 0:
+        if len(recent_list) > depth or len(recent_items) == 0:
             break
         recent_url = recent_json["next"]
     recent_index = dict()
@@ -236,7 +236,10 @@ def get_recently_played(headers, ignore_cache=False):
 
 def add_to_playlist(headers, playlist_metadata, idlist):
     """Tries to add the given list of items to the specified playlist."""
-    plid = playlist_metadata['id']
+    if isinstance(playlist_metadata, str):
+        plid = playlist_metadata
+    else:
+        plid = playlist_metadata['id']
     url = f"https://api.spotify.com/v1/playlists/{plid}/tracks"
     all_uris = list()
     for id in idlist:
@@ -259,8 +262,11 @@ def add_to_playlist(headers, playlist_metadata, idlist):
 
 def remove_from_playlist(headers, playlist_metadata, idlist):
     """Tries to remove the given list of items from the specified playlist."""
-    plid = playlist_metadata['id']
-    print(f"Removing {len(idlist)} tracks from {playlist_metadata['name']}")
+    if isinstance(playlist_metadata, str):
+        plid = playlist_metadata
+    else:
+        plid = playlist_metadata['id']
+    # print(f"Removing {len(idlist)} tracks from {playlist_metadata['name']}")
     url = f"https://api.spotify.com/v1/playlists/{plid}/tracks"
     all_uris = list()
     for id in idlist:
@@ -447,3 +453,86 @@ def get_artist_related_artist(headers, artist_id, ignore_cache=False):
     with open(playlist_file, 'w') as OUT:
         OUT.write(json.dumps(result, indent=4))
     return result
+
+def add_track_to_queue(headers, trackid):
+    """Adds a track to the queue"""
+    url = f"https://api.spotify.com/v1/me/player/queue?uri=spotify:track:{trackid}"
+    print (url)
+    print(headers)
+    response = requests.post(url, headers=headers)
+    print (f"done {response.status_code}")
+    if response.status_code != 204:
+        print(response.status_code)
+        print(response.text)
+        raise RuntimeError(f"Problem adding track to queue {trackid}: {response.status_code}")
+
+def next_track(headers):
+    """Moves to the next track in the queue."""
+    url = f"https://api.spotify.com/v1/me/player/next"
+    print (url)
+    print(headers)
+    response = requests.post(url, headers=headers)
+    print (f"done {response.status_code}")
+    if response.status_code != 204:
+        print(response.status_code)
+        print(response.text)
+        raise RuntimeError(f"Problem moving to next track: {response.status_code}")
+
+def get_current_playing_track(headers):
+    """Gets the currently playing track."""
+    url = f"https://api.spotify.com/v1/me/player/currently-playing"
+    print (url)
+    print(headers)
+    response = requests.get(url, headers=headers)
+    print (f"done {response.status_code}")
+    if response.status_code != 200:
+        print(response.status_code)
+        print(response.text)
+        raise RuntimeError(f"Problem getting current track: {response.status_code}")
+    jsondata = response.json()
+    return jsondata
+
+
+def song_checkbox_group(playlist_tracks, select_all_button, key_prefix = ""):
+    """Create a checkbox group for songs in the playlist."""
+    song_ids = list(playlist_tracks.keys())
+    song_ids.sort()
+    song_ids_with_none = list()
+    song_ids_with_none.append("")
+    song_ids_with_none.extend(song_ids)
+    selected_song_ids = list()
+    for song_id in song_ids:
+        song_label = f"{playlist_tracks[song_id]['name']} by {playlist_tracks[song_id]['artists'][0]['name']}"
+        selected = streamlit.checkbox(song_label, value=select_all_button, key=key_prefix + song_id)
+        if selected:
+            selected_song_ids.append(song_id)
+    return selected_song_ids
+
+
+def get_current_queue(headers):
+    """Gets the current queue."""
+    url = f"https://api.spotify.com/v1/me/player/queue"
+    print (url)
+    print(headers)
+    response = requests.get(url, headers=headers)
+    print (f"done {response.status_code}")
+    if response.status_code != 200:
+        print(response.status_code)
+        print(response.text)
+        raise RuntimeError(f"Problem getting current queue: {response.status_code}")
+    jsondata = response.json()
+    print(json.dumps(list(jsondata.keys()),indent=2))
+    return jsondata["queue"]
+
+def remove_from_queue(headers, trackid):
+    """Removes the given tracks from the queue."""
+    url = f"https://api.spotify.com/v1/me/player/queue"
+    print (url)
+    print(headers)
+    data = {"uri": trackid}
+    response = requests.delete(url, headers=headers, json=data)
+    print (f"done {response.status_code}")
+    if response.status_code != 200:
+        print(response.status_code)
+        print(response.text)
+        raise RuntimeError(f"Problem removing from queue: {response.status_code}")

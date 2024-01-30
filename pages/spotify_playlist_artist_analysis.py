@@ -157,11 +157,14 @@ streamlit.header("Set Details")
 streamlit.write(f"* Artist top tracks: {len(select_top_normname_set)}")
 streamlit.write(f"* Artist playlist tracks: {len(select_playlist_normname_set)}")
 
-streamlit.header("Top tracks in playlist")
+streamlit.header("Top tracks in playlist (check to remove)")
 playlist_common_sorted = list(playlist_common)
 playlist_common_sorted.sort()
+top_to_remove = list()
 for normname in playlist_common_sorted:
-    fake_checkbox = streamlit.checkbox(normname, key=f"FakeCheck{normname}", disabled=True, value=True)
+    top_checkbox = streamlit.checkbox(normname, key=f"FakeCheck{normname}")
+    if top_checkbox:
+        top_to_remove.extend(select_artist_top_tracks_by_normname[normname].keys())
 
 show_more_checklist = dict()
 add_to_checklist = dict()
